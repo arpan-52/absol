@@ -18,15 +18,18 @@
 
 set -euo pipefail
 source /home/apal/.bashrc          # puts `pixi` on PATH
+export PIXI_FROZEN=1               # never touch the network on the compute node
 mkdir -p /home/apal/logs
 cd /home/apal/absol                # must run from the project dir (pixi env lives here)
 
+# Requires the env to be pre-built on a LOGIN node with internet:
+#     cd ~/absol && pixi install            # builds .pixi/envs/default + editable absol
 echo "=== node $(hostname) ==="; nvidia-smi
 
 OUT=/scratch/$USER/$PBS_JOBID/sanity
 mkdir -p "$OUT"
 
-pixi run absol train \
+pixi run --frozen absol train \
   --sim-config  configs/sim_gmrt_band4.yaml \
   --array-config configs/array_gmrt.yaml \
   --model-config configs/model_default.yaml \
@@ -34,7 +37,7 @@ pixi run absol train \
   --override training.device=cuda
 
 # --- gate: parse the log; nonzero exit if GPU-gen or loss-drop checks fail ---
-pixi run python - "$OUT/log.jsonl" <<'PY'
+pixi run --frozen python - "$OUT/log.jsonl" <<'PY'
 import json, sys
 recs = [json.loads(l) for l in open(sys.argv[1])]
 gen  = [r for r in recs if r.get("event") == "gen"][-1]
