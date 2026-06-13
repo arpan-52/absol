@@ -159,15 +159,15 @@ def _closure_scatter(
     acc = torch.zeros((b, nc), device=dev)
     cnt = torch.zeros((b, nc), device=dev)
     n_tri = min(n_tri, max(n_ant - 2, 0))
+    pi, pj = pairs[:, 0], pairs[:, 1]
     for _ in range(n_tri):
-        ks = np.empty(b, dtype=np.int64)
-        for idx, (i, j) in enumerate(pairs):
-            while True:
-                k = rng.integers(0, n_ant)
-                if k != i and k != j:
-                    ks[idx] = k
-                    break
-        i, j = pairs[:, 0], pairs[:, 1]
+        # vectorized: draw a third antenna per baseline, redraw only collisions
+        ks = rng.integers(0, n_ant, size=b)
+        bad = (ks == pi) | (ks == pj)
+        while bad.any():
+            ks = np.where(bad, rng.integers(0, n_ant, size=b), ks)
+            bad = (ks == pi) | (ks == pj)
+        i, j = pi, pj
         b_jk, b_ik = pmap[j, ks], pmap[i, ks]
         c_jk = torch.where(
             torch.as_tensor(j < ks, device=dev)[:, None, None], v[b_jk], v[b_jk].conj()

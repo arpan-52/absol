@@ -195,6 +195,41 @@ def azel_to_hadec(az_rad: float, el_rad: float, lat_rad: float) -> tuple[float, 
     return float(np.arctan2(sin_h, cos_h)), float(dec)
 
 
+def azel_to_hadec_array(
+    az_rad: np.ndarray, el_rad: np.ndarray, lat_rad: float
+) -> tuple[np.ndarray, np.ndarray]:
+    """Vectorized :func:`azel_to_hadec` over arrays -> (ha[K], dec[K])."""
+    az, el = np.asarray(az_rad), np.asarray(el_rad)
+    sl, cl = np.sin(lat_rad), np.cos(lat_rad)
+    sd = np.clip(sl * np.sin(el) + cl * np.cos(el) * np.cos(az), -1.0, 1.0)
+    dec = np.arcsin(sd)
+    cd = np.cos(dec)
+    safe = np.abs(cd) > 1e-12
+    cd_s = np.where(safe, cd, 1.0)
+    sin_h = np.where(safe, -np.sin(az) * np.cos(el) / cd_s, 0.0)
+    cos_h = np.where(safe, (np.sin(el) - sl * sd) / (cl * cd_s), 1.0)
+    return np.arctan2(sin_h, cos_h), dec
+
+
+def fringe_rate_grid(
+    array: Array,
+    ha_rad: np.ndarray,
+    dec_rad: np.ndarray,
+    freq_hz: float,
+    ha_pc_rad: float,
+    dec_pc_rad: float,
+) -> np.ndarray:
+    """Vectorized residual fringe rate [K, B] for K directions (ha[K], dec[K])."""
+    d = array.baseline_xyz()                              # [B, 3]
+    dx, dy = d[:, 0], d[:, 1]
+    ha, dec = np.atleast_1d(ha_rad), np.atleast_1d(dec_rad)
+    sh, ch, cd = np.sin(ha), np.cos(ha), np.cos(dec)      # [K]
+    dw = (-cd * sh)[:, None] * dx[None, :] + (-cd * ch)[:, None] * dy[None, :]  # [K, B]
+    shp, chp, cdp = np.sin(ha_pc_rad), np.cos(ha_pc_rad), np.cos(dec_pc_rad)
+    dw_pc = -cdp * shp * dx - cdp * chp * dy              # [B]
+    return (dw - dw_pc[None, :]) * OMEGA_EARTH * freq_hz / C_LIGHT
+
+
 def hadec_to_azel(ha_rad: float, dec_rad: float, lat_rad: float) -> tuple[float, float]:
     """(hour angle, declination) -> (az from N through E, el), radians."""
     sl, cl = np.sin(lat_rad), np.cos(lat_rad)
@@ -258,10 +293,8 @@ def direction_buckets(
     azs = np.arange(grid_deg / 2, 360.0, grid_deg)
     els = np.arange(grid_deg / 2, 90.0, grid_deg)
     az_g, el_g = [a.ravel() for a in np.meshgrid(azs, els)]
-    rates = np.empty((az_g.size, array.baselines().shape[0]), dtype=np.float64)
-    for k in range(az_g.size):
-        ha, dec = azel_to_hadec(np.deg2rad(az_g[k]), np.deg2rad(el_g[k]), array.lat_rad)
-        rates[k] = fringe_rate(array, ha, dec, freq_hz, ha_pc_rad, dec_pc_rad)
+    ha_g, dec_g = azel_to_hadec_array(np.deg2rad(az_g), np.deg2rad(el_g), array.lat_rad)
+    rates = fringe_rate_grid(array, ha_g, dec_g, freq_hz, ha_pc_rad, dec_pc_rad)
     out = DirectionBuckets(
         az_deg=az_g, el_deg=el_g, rates_hz=rates, freq_hz=float(freq_hz),
         grid_deg=grid_deg, ha_pc_rad=float(ha_pc_rad), dec_pc_rad=float(dec_pc_rad),

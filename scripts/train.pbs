@@ -1,0 +1,77 @@
+#!/bin/bash
+#PBS -N absol_train
+#PBS -q gpu
+#PBS -l select=1:ncpus=8:mem=64gb:ngpus=1
+#PBS -l walltime=72:00:00
+#PBS -j oe
+#PBS -o /home/apal/logs/
+
+# ---------------------------------------------------------------------------
+# ABSOL full training run (GPU-native: scenes are simulated on the GPU, no
+# input data to stage). Run test.pbs first; this script also does its own
+# 2-minute pre-gate so a broken GPU can't waste the 3-day allocation.
+#
+# Walltime: set to 72 h. Check your queue allows it:  qstat -Qf gpu
+#
+# Trim the curriculum to fit your wall (default 100k steps x 4 scenes may be
+# 4-7 days). Either edit STEPS below, or pass it at submit time:
+#     qsub -v STEPS='[12000,12000,18000,18000]' train.pbs
+# ---------------------------------------------------------------------------
+
+set -euo pipefail
+source /home/apal/.bashrc          # puts `pixi` on PATH
+mkdir -p /home/apal/logs
+cd /home/apal/absol                # must run from the project dir (pixi env lives here)
+
+echo "=== node $(hostname) ==="; nvidia-smi
+
+OUT=/scratch/$USER/$PBS_JOBID/runs/v0
+mkdir -p "$OUT"
+
+# optional curriculum override (env var STEPS, e.g. via qsub -v STEPS='[...]')
+STEPS_ARG=""
+if [ -n "${STEPS:-}" ]; then
+  STEPS_ARG="--override training.steps_per_stage=$STEPS"
+  echo "curriculum override: $STEPS"
+fi
+
+# --- 2-minute pre-gate: full-resolution overfit on GPU; abort before the long
+#     run if generation isn't on the GPU, loss doesn't move, or it OOMs -------
+PG="$OUT/_pregate"
+pixi run absol train \
+  --sim-config configs/sim_gmrt_band4.yaml --array-config configs/array_gmrt.yaml \
+  --model-config configs/model_default.yaml \
+  --out "$PG" --overfit-one --steps 100 --override training.device=cuda
+pixi run python - "$PG/log.jsonl" <<'PY'
+import json, sys
+recs = [json.loads(l) for l in open(sys.argv[1])]
+gen  = [r for r in recs if r.get("event") == "gen"][-1]
+done = [r for r in recs if r.get("event") == "done"][-1]
+ok = gen["gen_device"] == "cuda" and done["last_loss"] < done["first_loss"]
+print(f"pre-gate: gen_device={gen['gen_device']} loss {done['first_loss']:.3f}->{done['last_loss']:.3f}")
+sys.exit(0 if ok else 1)
+PY
+echo "=== pre-gate passed; starting full run ==="
+
+# --- full training run -----------------------------------------------------
+pixi run absol train \
+  --sim-config  configs/sim_gmrt_band4.yaml \
+  --array-config configs/array_gmrt.yaml \
+  --model-config configs/model_default.yaml \
+  --out "$OUT" \
+  --override training.device=cuda \
+  $STEPS_ARG
+
+# --- ensure a loadable model exists even if the run was cut short ----------
+# (the loop writes last.pt every checkpoint_every steps; model.pt only on
+# clean completion. load_model reads model.pt, so fall back to last.pt.)
+[ -f "$OUT/model.pt" ] || { echo "no model.pt; using last.pt"; cp "$OUT/last.pt" "$OUT/model.pt"; }
+
+# --- calibrate (temperature scaling). 2000 holdout scenes is the default;
+#     cap with --n for a quick pass. ------------------------------------------
+pixi run absol calibrate --run "$OUT" --n 300 || echo "calibration skipped/failed"
+
+# --- persist results back to $HOME (scratch is purged) ---------------------
+mkdir -p /home/apal/models
+cp -r "$OUT" /home/apal/models/
+echo "=== done; model at /home/apal/models/v0/ (model.pt + T.json) ==="

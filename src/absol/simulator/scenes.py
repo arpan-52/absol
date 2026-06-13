@@ -28,9 +28,7 @@ from absol.geometry import (
     C_LIGHT,
     OMEGA_EARTH,
     Array,
-    azel_to_hadec,
-    fringe_rate,
-    w_metres,
+    azel_to_hadec_array,
 )
 from absol.simulator.gains import antenna_gains, apply_gains
 from absol.simulator.rfi import MECHANISMS, RFIEvent
@@ -91,16 +89,21 @@ def event_contribution(
         scale_f = torch.ones(n_f, dtype=torch.float32, device=device)
     else:
         dt = (ha_rad[1] - ha_rad[0]) / OMEGA_EARTH if n_t > 1 else 8.0
-        rates = np.empty((n_t, n_b))
-        w_s = np.empty((n_t, n_b))
-        for t in range(n_t):
-            ha_s, dec_s = azel_to_hadec(
-                np.deg2rad(event.az_deg[t]), np.deg2rad(event.el_deg[t]), array.lat_rad
-            )
-            rates[t] = fringe_rate(array, ha_s, dec_s, nu0, float(ha_rad[t]), dec_rad)
-            w_s[t] = w_metres(array, ha_s, dec_s)
-        # integrate the (slowly varying) rate; remove the mean to keep phases small
-        phi_t = 2 * np.pi * np.cumsum(rates - rates.mean(0, keepdims=True) * 0.0, axis=0) * dt
+        # vectorized over the n_t source-direction track (was a per-dump loop)
+        d = array.baseline_xyz()
+        dx, dy, dz = d[:, 0], d[:, 1], d[:, 2]
+        ha_s, dec_s = azel_to_hadec_array(
+            np.deg2rad(event.az_deg), np.deg2rad(event.el_deg), array.lat_rad
+        )                                                   # [T]
+        sh, ch, cd, sd = np.sin(ha_s), np.cos(ha_s), np.cos(dec_s), np.sin(dec_s)
+        shp, chp, cdp = np.sin(ha_rad), np.cos(ha_rad), np.cos(dec_rad)
+        k = OMEGA_EARTH * nu0 / C_LIGHT
+        rate_dir = (-cd * sh)[:, None] * dx[None, :] + (-cd * ch)[:, None] * dy[None, :]
+        rate_pc = (-cdp * shp)[:, None] * dx[None, :] + (-cdp * chp)[:, None] * dy[None, :]
+        rates = (rate_dir - rate_pc) * k                    # [T, B] Hz
+        w_s = (cd * ch)[:, None] * dx[None, :] - (cd * sh)[:, None] * dy[None, :] \
+            + sd[:, None] * dz[None, :]                     # [T, B] metres
+        phi_t = 2 * np.pi * np.cumsum(rates, axis=0) * dt
         phi_t += 2 * np.pi * (nu0 / C_LIGHT) * w_s          # delay structure (mod 2 pi)
         phase = torch.as_tensor(phi_t.T[:, :, None], dtype=torch.float32, device=device)
         scale_f = torch.as_tensor(freqs_hz / nu0, dtype=torch.float32, device=device)

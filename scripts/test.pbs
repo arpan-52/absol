@@ -1,0 +1,50 @@
+#!/bin/bash
+#PBS -N absol_test
+#PBS -q gpu
+#PBS -l select=1:ncpus=8:mem=64gb:ngpus=1
+#PBS -l walltime=01:00:00
+#PBS -j oe
+#PBS -o /home/apal/logs/
+
+# ---------------------------------------------------------------------------
+# ABSOL GPU sanity test. Run THIS first. It overfits one full-4096-channel
+# scene on the GPU for 200 steps and gates on two facts:
+#   (1) scenes are generated ON the GPU  ("gen_device": "cuda")
+#   (2) the loss actually drops
+# It also implicitly verifies the full-resolution scene fits the H100 memory.
+# Exit 0 => safe to submit train.pbs. Exit 1 => something is wrong; do NOT
+# launch the 3-day run.
+# ---------------------------------------------------------------------------
+
+set -euo pipefail
+source /home/apal/.bashrc          # puts `pixi` on PATH
+mkdir -p /home/apal/logs
+cd /home/apal/absol                # must run from the project dir (pixi env lives here)
+
+echo "=== node $(hostname) ==="; nvidia-smi
+
+OUT=/scratch/$USER/$PBS_JOBID/sanity
+mkdir -p "$OUT"
+
+pixi run absol train \
+  --sim-config  configs/sim_gmrt_band4.yaml \
+  --array-config configs/array_gmrt.yaml \
+  --model-config configs/model_default.yaml \
+  --out "$OUT" --overfit-one --steps 200 \
+  --override training.device=cuda
+
+# --- gate: parse the log; nonzero exit if GPU-gen or loss-drop checks fail ---
+pixi run python - "$OUT/log.jsonl" <<'PY'
+import json, sys
+recs = [json.loads(l) for l in open(sys.argv[1])]
+gen  = [r for r in recs if r.get("event") == "gen"][-1]
+done = [r for r in recs if r.get("event") == "done"][-1]
+on_gpu   = gen["gen_device"] == "cuda"
+improved = done["last_loss"] < done["first_loss"]
+print(f"gen_device = {gen['gen_device']}")
+print(f"loss {done['first_loss']:.4f} -> {done['last_loss']:.4f}")
+print("PASS" if (on_gpu and improved) else "FAIL")
+sys.exit(0 if (on_gpu and improved) else 1)
+PY
+
+echo "=== sanity OK: you can now qsub train.pbs ==="
