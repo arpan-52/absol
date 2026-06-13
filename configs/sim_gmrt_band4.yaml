@@ -1,0 +1,47 @@
+# Scenario generator config for GMRT band-4 training scenes.
+# NOTE for 8 GB GPUs / laptop training: the model only ever sees fixed
+# 16x128 (time x freq) tiles, so you can train at reduced n_channels
+# (override band.n_channels to e.g. 1024 in array config copy) and still
+# infer on full 4096-channel data. Scene at full size is ~2 GB.
+scene:
+  duration_s: 600
+  n_time: 75                       # duration / integration
+  declination_deg: {min: -30, max: 60}
+  clean_scene_fraction: 0.2
+  n_rfi_sources: {min: 0, max: 5}
+sky:
+  n_sources: {min: 1, max: 20}
+  flux_jy: {dist: powerlaw, alpha: -1.6, min: 0.005, max: 2.0}
+  field_radius_deg: 1.0
+noise:
+  sefd_jy: 390                     # GMRT band-4 ballpark
+  sefd_jitter_frac: 0.15           # per-antenna SEFD jitter
+gains:
+  amp_rms: 0.05
+  phase_rms_deg: 10
+  timescale_s: 300
+flag_augmentation:                 # pre-existing data gaps
+  scattered_p: 0.3
+  contiguous_p: 0.3
+  block_p: 0.1
+antenna_dropout: {min_frac: 0.0, max_frac: 0.3}
+rfi:
+  strength_sigma: {dist: loguniform, min: 0.3, max: 1000}  # per-baseline units of thermal sigma
+  coupling_decades: 3              # per-antenna log-uniform spread
+  coupling_mode_probs: {subset: 0.5, all_antennas: 0.3, single: 0.2}
+  modulation_timescale_s: {min: 60, max: 600}
+  mechanisms:
+    ground_narrowband: 0.30
+    powerline_arcing: 0.20
+    satellite: 0.20
+    pulsed: 0.15
+    internal_zero_fringe: 0.10
+    transient_protected: 0.05      # celestial transient: label = DO NOT FLAG
+truth:
+  mask_threshold_sigma: 0.1        # |RFI| > 0.1 x thermal sigma => contaminated
+chunking:
+  chunk_time_samples: 16           # 16 x 8 s = 128 s per chunk
+  chunk_freq_channels: 128         # 128 ch x ~48.8 kHz = 6.25 MHz tile -> 32 tiles
+residual:
+  savgol_window_dumps: 25          # smooth time component subtraction (also used on sim)
+  savgol_order: 3

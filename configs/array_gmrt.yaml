@@ -1,0 +1,48 @@
+# GMRT array geometry. ENU metres relative to C02 (the GMRT reference antenna).
+# Converted from the observatory Antenna.def local equatorial (bx, by, bz) frame
+# (X -> meridian/equator intersection, Y -> east, Z -> NCP) at latitude 19.0963 N:
+#   E = Y ;  N = -X sin(lat) + Z cos(lat) ;  U = X cos(lat) + Z sin(lat)
+# The two mock entries in Antenna.def (ANT30 "C07", ANT31 "S05") are excluded:
+# the real array is 30 antennas (no C07, no S05).
+array:
+  name: GMRT
+  latitude_deg: 19.0963
+  longitude_deg: 74.0500
+  antennas:
+    - {id: C00, e: 687.88, n: -21.21, u: 0.01}
+    - {id: C01, e: 326.45, n: -42.46, u: -0.68}
+    - {id: C02, e: 0.00, n: 0.00, u: 0.00}
+    - {id: C03, e: -372.71, n: 142.99, u: -4.68}
+    - {id: C04, e: -565.96, n: 133.33, u: -7.82}
+    - {id: C05, e: 67.81, n: -258.90, u: -5.91}
+    - {id: C06, e: -31.43, n: -231.75, u: -4.84}
+    - {id: C08, e: 280.68, n: -421.09, u: -7.37}
+    - {id: C09, e: 41.95, n: -159.21, u: -3.68}
+    - {id: C10, e: -164.87, n: -617.76, u: -11.38}
+    - {id: C11, e: -603.25, n: -337.39, u: -8.35}
+    - {id: C12, e: 174.85, n: -669.03, u: -10.16}
+    - {id: C13, e: -639.50, n: -1177.01, u: -17.35}
+    - {id: C14, e: -473.69, n: -661.88, u: -9.70}
+    - {id: E02, e: 2814.55, n: 1015.10, u: -17.02}
+    - {id: E03, e: 4576.04, n: 2057.60, u: -36.41}
+    - {id: E04, e: 7780.57, n: 3082.98, u: -30.66}
+    - {id: E05, e: 10199.90, n: 3544.60, u: -19.39}
+    - {id: E06, e: 12073.32, n: 4807.43, u: 0.78}
+    - {id: S01, e: 633.96, n: -2960.03, u: -26.88}
+    - {id: S02, e: -367.22, n: -4519.01, u: -27.00}
+    - {id: S03, e: 333.10, n: -6767.21, u: -31.02}
+    - {id: S04, e: 947.79, n: -9490.70, u: -33.86}
+    - {id: S06, e: -369.09, n: -14148.62, u: -38.08}
+    - {id: W01, e: -1591.95, n: 624.65, u: 3.18}
+    - {id: W02, e: -3099.44, n: 1499.08, u: 8.57}
+    - {id: W03, e: -5200.01, n: 3063.94, u: 11.56}
+    - {id: W04, e: -7039.06, n: 5355.92, u: 19.38}
+    - {id: W05, e: -8103.26, n: 8272.15, u: 0.64}
+    - {id: W06, e: -11245.77, n: 9440.28, u: -13.83}
+band:
+  freq_start_hz: 550.0e+6   # signed exponent so YAML 1.1 parses as float, not str
+  freq_end_hz: 750.0e+6
+  n_channels: 96
+  n_pol: 2            # parallel hands in v0; cross-hands optional later
+observation:
+  integration_s: 8.0  # visibility dump time assumed in sims

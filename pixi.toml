@@ -1,0 +1,40 @@
+[workspace]
+name = "absol"
+channels = ["conda-forge"]
+platforms = ["linux-64"]
+
+[dependencies]
+python = ">=3.10,<3.13"
+numpy = "*"
+scipy = "*"
+pyyaml = "*"
+matplotlib-base = "*"
+tqdm = "*"
+h5py = "*"
+einops = "*"
+pip = "*"
+
+[pypi-dependencies]
+torch = ">=2.0"
+torch-geometric = ">=2.4"
+absol = { path = ".", editable = true }
+
+[feature.ms.dependencies]
+python-casacore = "*"
+
+[feature.validate.pypi-dependencies]
+sgp4 = "*"
+
+[feature.dev.dependencies]
+pytest = "*"
+ruff = "*"
+mypy = "*"
+
+[environments]
+default = { solve-group = "default" }
+dev = { features = ["dev"], solve-group = "default" }
+ms = { features = ["ms", "validate", "dev"], solve-group = "default" }
+
+[tasks]
+test = { cmd = "pytest -x -q", env = { CUDA_VISIBLE_DEVICES = "" } }
+lint = "ruff check src tests"

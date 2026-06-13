@@ -1,0 +1,23 @@
+# Validation campaign config + pre-registered acceptance targets.
+injection:
+  strength_grid_sigma: [0.3, 0.5, 1.0, 2.0, 5.0, 20.0]
+  mechanisms: [ground_narrowband, powerline_arcing, satellite, pulsed, internal_zero_fringe]
+  n_injections_per_cell: 8
+  fpr_operating_point: 0.01
+noise_curve:
+  # Either a CSV with columns t_seconds,sigma_jy  (one per flagging scheme),
+  # or FITS image paths with cumulative integration times.
+  series: []         # e.g. [{label: absol, csv: noise_absol.csv}, {label: aoflagger, csv: noise_ao.csv}]
+  departure_frac: 0.10
+coincidence:
+  tle_file: null               # user-supplied TLE catalogue
+  pointing_ring_deg: 30.0      # transit windows: within K deg of pointing
+  n_time_shuffles: 1000
+  powerline_fold_hz: 100.0
+residual_stats:
+  central_square_max_baseline_m: 2000.0
+acceptance:                     # pre-registered targets rendered into the report
+  injection_recall_margin_vs_aoflagger: 0.15   # recall@1%FPR >= AOFlagger + 0.15 in 0.5-2 sigma bin
+  noise_curve_tracking_factor: 4.0             # thermal 1/sqrt(t) tracking >= 4x longer
+  satellite_coincidence_sigma: 5.0
+  data_loss_constraint: "<= default pipeline at equal image noise"

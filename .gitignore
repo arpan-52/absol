@@ -1,0 +1,13 @@
+__pycache__/
+*.pyc
+*.egg-info/
+.pixi/
+pixi.lock
+runs/
+outputs/
+*.h5
+*.ms/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+*.pt

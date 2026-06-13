@@ -1,0 +1,48 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "absol"
+version = "0.1.0"
+description = "ABSOL - graph-based visibility-domain RFI detection (GMRT band-4 first target)"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+dependencies = [
+    "numpy",
+    "scipy",
+    "torch>=2.0",
+    "torch_geometric>=2.4",
+    "pyyaml",
+    "matplotlib",
+    "tqdm",
+    "h5py",
+    "einops",
+]
+
+[project.optional-dependencies]
+ms = ["python-casacore"]
+validate = ["sgp4"]
+dev = ["pytest", "ruff", "mypy"]
+
+[project.scripts]
+absol = "absol.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/absol"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP"]
+ignore = ["E501"]
+
+[tool.ruff.lint.per-file-ignores]
+# (l, m) direction cosines are standard radio-interferometry notation
+"src/absol/simulator/sky.py" = ["E741"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

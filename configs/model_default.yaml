@@ -1,0 +1,29 @@
+encoder: {embed_dim: 64, cnn_channels: [16, 32, 64]}
+gnn:
+  hidden_dim: 96
+  n_rounds: 3
+  relations: [shared_antenna, direction, uv_cell]
+  heads: 4
+temporal: {n_layers: 2, n_heads: 4}
+graph:
+  direction_grid_deg: 5
+  direction_tol_hz: 0.008          # ~1 FFT bin at 128 s chunks
+  degree_cap: 16
+  uv_cell_m: 400
+training:
+  batch_scenes: 4
+  steps_per_stage: [20000, 20000, 30000, 30000]  # curriculum stages 1-4
+  lr: 3.0e-4
+  weight_decay: 0.01
+  focal_gamma: 2.0
+  loss_weights: {edge_chunk: 1.0, antenna: 0.3, sample_mask: 0.5}
+  protected_negative_weight: 2.0
+  device: cuda
+  amp: true
+  seed: 1234
+  log_every: 50
+  checkpoint_every: 1000
+calibration: {holdout_scenes: 2000}
+inference:
+  chunk_prob_mask_gate: 0.2        # run sample-mask decoder where p_chunk exceeds this
+  flag_threshold: 0.5
