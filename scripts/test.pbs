@@ -2,18 +2,20 @@
 #PBS -N absol_test
 #PBS -q gpu
 #PBS -l select=1:ncpus=8:mem=64gb:ngpus=1
-#PBS -l walltime=01:00:00
+#PBS -l walltime=02:00:00
 #PBS -j oe
 #PBS -o /home/apal/logs/
 
 # ---------------------------------------------------------------------------
-# ABSOL GPU sanity test. Run THIS first. It overfits one full-4096-channel
-# scene on the GPU for 200 steps and gates on two facts:
-#   (1) scenes are generated ON the GPU  ("gen_device": "cuda")
-#   (2) the loss actually drops
-# It also implicitly verifies the full-resolution scene fits the H100 memory.
-# Exit 0 => safe to submit train.pbs. Exit 1 => something is wrong; do NOT
-# launch the 3-day run.
+# ABSOL GPU sanity + throughput test. Run THIS first. It does two things:
+#  A) overfits one full-4096-channel scene on the GPU and GATES on:
+#        (1) scenes generated ON the GPU  ("gen_device": "cuda")
+#        (2) the loss drops
+#     (also verifies the full-res scene fits H100 memory).
+#  B) if the gate passes, runs a short REAL training burst (fresh scene every
+#     step, like the full run) to MEASURE seconds/step, then prints a ready-to-
+#     paste `qsub -v STEPS=...` sized to fit your wall clock.
+# Exit 0 => safe to submit train.pbs. Exit 1 => do NOT launch the 3-day run.
 # ---------------------------------------------------------------------------
 
 set -euo pipefail
@@ -51,4 +53,34 @@ print("PASS" if (on_gpu and improved) else "FAIL")
 sys.exit(0 if (on_gpu and improved) else 1)
 PY
 
-echo "=== sanity OK: you can now qsub train.pbs ==="
+echo "=== sanity OK; measuring real throughput ==="
+
+# --- B) throughput probe: short REAL run (fresh scene every step). --steps N
+#        caps EACH of the 4 curriculum stages at N, so this does 4*N steps and
+#        samples every stage's scene cost. -------------------------------------
+PROBE=/scratch/$USER/$PBS_JOBID/probe
+mkdir -p "$PROBE"
+pixi run --frozen python -m absol.cli train \
+  --sim-config  configs/sim_gmrt_band4.yaml \
+  --array-config configs/array_gmrt.yaml \
+  --model-config configs/model_default.yaml \
+  --out "$PROBE" --steps 25 \
+  --override training.device=cuda --override training.log_every=10
+
+# --- analyse: steady-state s/step (skip warmup) -> suggested STEPS per budget -
+pixi run --frozen python - "$PROBE/log.jsonl" <<'PY'
+import json, sys
+recs = [json.loads(l) for l in open(sys.argv[1])]
+steps = sorted((r for r in recs if "step" in r and "t" in r), key=lambda r: r["step"])
+warm = [r for r in steps if r["step"] >= 20] or steps[1:] or steps
+sps = (warm[-1]["t"] - warm[0]["t"]) / max(warm[-1]["step"] - warm[0]["step"], 1)
+print(f"\nmeasured ~{sps:.2f} s/step over {warm[-1]['step']-warm[0]['step']} steady steps")
+print("suggested curriculum (split 20:20:30:30), leaving margin for calibrate+copy:")
+for hrs in (54, 60):
+    T = int(hrs * 3600 / sps)
+    s = [int(round(T * f, -2)) for f in (0.2, 0.2, 0.3, 0.3)]
+    print(f"  ~{hrs}h train -> {sum(s)} steps:  "
+          f"qsub -v STEPS='[{s[0]},{s[1]},{s[2]},{s[3]}]' train.pbs")
+PY
+
+echo "=== done: pick a STEPS line above and qsub train.pbs ==="

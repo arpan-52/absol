@@ -153,7 +153,7 @@ def train(
                 with torch.autocast(device_type=device.type, enabled=use_amp):
                     losses = _step(model, item, cfg_t)
                 scaler.scale(losses["total"] / n_acc).backward()
-                tot += float(losses["total"]) / n_acc
+                tot += float(losses["total"].detach()) / n_acc
                 for k in comps:
                     comps[k] += float(losses[k]) / n_acc
             scaler.unscale_(opt)
