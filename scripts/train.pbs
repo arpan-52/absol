@@ -21,6 +21,7 @@
 set -euo pipefail
 source /home/apal/.bashrc          # puts `pixi` on PATH
 export PIXI_FROZEN=1               # never touch the network on the compute node
+export PYTHONPATH=/home/apal/absol/src:${PYTHONPATH:-}   # import absol from src, no editable wrapper exec
 mkdir -p /home/apal/logs
 cd /home/apal/absol                # must run from the project dir (pixi env lives here)
 
@@ -41,7 +42,7 @@ fi
 # --- 2-minute pre-gate: full-resolution overfit on GPU; abort before the long
 #     run if generation isn't on the GPU, loss doesn't move, or it OOMs -------
 PG="$OUT/_pregate"
-pixi run --frozen absol train \
+pixi run --frozen python -m absol.cli train \
   --sim-config configs/sim_gmrt_band4.yaml --array-config configs/array_gmrt.yaml \
   --model-config configs/model_default.yaml \
   --out "$PG" --overfit-one --steps 100 --override training.device=cuda
@@ -57,7 +58,7 @@ PY
 echo "=== pre-gate passed; starting full run ==="
 
 # --- full training run -----------------------------------------------------
-pixi run --frozen absol train \
+pixi run --frozen python -m absol.cli train \
   --sim-config  configs/sim_gmrt_band4.yaml \
   --array-config configs/array_gmrt.yaml \
   --model-config configs/model_default.yaml \
@@ -72,7 +73,7 @@ pixi run --frozen absol train \
 
 # --- calibrate (temperature scaling). 2000 holdout scenes is the default;
 #     cap with --n for a quick pass. ------------------------------------------
-pixi run --frozen absol calibrate --run "$OUT" --n 300 || echo "calibration skipped/failed"
+pixi run --frozen python -m absol.cli calibrate --run "$OUT" --n 300 || echo "calibration skipped/failed"
 
 # --- persist results back to $HOME (scratch is purged) ---------------------
 mkdir -p /home/apal/models

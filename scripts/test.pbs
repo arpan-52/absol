@@ -19,6 +19,7 @@
 set -euo pipefail
 source /home/apal/.bashrc          # puts `pixi` on PATH
 export PIXI_FROZEN=1               # never touch the network on the compute node
+export PYTHONPATH=/home/apal/absol/src:${PYTHONPATH:-}   # import absol from src, no editable wrapper exec
 mkdir -p /home/apal/logs
 cd /home/apal/absol                # must run from the project dir (pixi env lives here)
 
@@ -29,7 +30,7 @@ echo "=== node $(hostname) ==="; nvidia-smi
 OUT=/scratch/$USER/$PBS_JOBID/sanity
 mkdir -p "$OUT"
 
-pixi run --frozen absol train \
+pixi run --frozen python -m absol.cli train \
   --sim-config  configs/sim_gmrt_band4.yaml \
   --array-config configs/array_gmrt.yaml \
   --model-config configs/model_default.yaml \
