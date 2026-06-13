@@ -7,15 +7,17 @@
 #PBS -o /home/apal/logs/
 
 # ---------------------------------------------------------------------------
-# ABSOL full training run (GPU-native: scenes are simulated on the GPU, no
-# input data to stage). Run test.pbs first; this script also does its own
-# 2-minute pre-gate so a broken GPU can't waste the 3-day allocation.
+# ABSOL full training run (GPU-native; scenes simulated on the GPU, no input
+# data to stage). Run test.pbs first to validate the GPU path and measure
+# seconds/step.
 #
-# Walltime: set to 72 h. Check your queue allows it:  qstat -Qf gpu
+# Submit with:  qsub train.pbs   (everything is baked in, no -v needed).
+# Curriculum is sized for ~60h at the measured ~13.4 s/step (16000 steps),
+# leaving ~12h under the 72h wall for the pre-gate, calibration and copy-back.
+# To change it, edit STEPS_LIST below.
 #
-# Trim the curriculum to fit your wall (default 100k steps x 4 scenes may be
-# 4-7 days). Either edit STEPS below, or pass it at submit time:
-#     qsub -v STEPS='[12000,12000,18000,18000]' train.pbs
+# A rescue trap syncs results off scratch on ANY exit (normal, error, or
+# walltime kill), so the model is never lost.
 # ---------------------------------------------------------------------------
 
 set -euo pipefail
@@ -25,22 +27,31 @@ export PYTHONPATH=/home/apal/absol/src:${PYTHONPATH:-}   # import absol from src
 mkdir -p /home/apal/logs
 cd /home/apal/absol                # must run from the project dir (pixi env lives here)
 
-# Requires the env to be pre-built on a LOGIN node with internet:
-#     cd ~/absol && pixi install            # builds .pixi/envs/default + editable absol
+# Requires the env pre-built on a LOGIN node with internet (cd ~/absol && pixi install).
 echo "=== node $(hostname) ==="; nvidia-smi
 
 OUT=/scratch/$USER/$PBS_JOBID/runs/v0
-mkdir -p "$OUT"
+DEST=/home/apal/models/v0
+mkdir -p "$OUT" "$DEST"
 
-# optional curriculum override (env var STEPS, e.g. via qsub -v STEPS='[...]')
-STEPS_ARG=""
-if [ -n "${STEPS:-}" ]; then
-  STEPS_ARG="--override training.steps_per_stage=$STEPS"
-  echo "curriculum override: $STEPS"
-fi
+# --- rescue: ensure a loadable model.pt and copy results off scratch (which
+#     gets purged) on ANY exit, including a walltime SIGTERM. Idempotent. -----
+rescue() {
+  echo "=== rescue: syncing $OUT -> $DEST ==="
+  if [ ! -f "$OUT/model.pt" ] && [ -f "$OUT/last.pt" ]; then
+    cp -f "$OUT/last.pt" "$OUT/model.pt" || true
+  fi
+  cp -ru "$OUT/." "$DEST/" 2>/dev/null || true
+}
+trap 'rescue; exit 143' TERM
+trap rescue EXIT
 
-# --- 2-minute pre-gate: full-resolution overfit on GPU; abort before the long
-#     run if generation isn't on the GPU, loss doesn't move, or it OOMs -------
+# curriculum steps for stages 1-4 (~60h @ ~13.4 s/step). Edit to taste.
+STEPS_LIST="[3200,3200,4800,4800]"
+echo "curriculum steps_per_stage = $STEPS_LIST"
+
+# --- pre-gate: 2-min full-resolution overfit on GPU; abort before the long run
+#     if generation isn't on the GPU, loss doesn't move, or it OOMs ------------
 PG="$OUT/_pregate"
 pixi run --frozen python -m absol.cli train \
   --sim-config configs/sim_gmrt_band4.yaml --array-config configs/array_gmrt.yaml \
@@ -64,18 +75,14 @@ pixi run --frozen python -m absol.cli train \
   --model-config configs/model_default.yaml \
   --out "$OUT" \
   --override training.device=cuda \
-  $STEPS_ARG
+  --override training.steps_per_stage="$STEPS_LIST"
 
-# --- ensure a loadable model exists even if the run was cut short ----------
-# (the loop writes last.pt every checkpoint_every steps; model.pt only on
-# clean completion. load_model reads model.pt, so fall back to last.pt.)
+# guarantee a loadable model even if the run was cut short
 [ -f "$OUT/model.pt" ] || { echo "no model.pt; using last.pt"; cp "$OUT/last.pt" "$OUT/model.pt"; }
 
-# --- calibrate (temperature scaling). 2000 holdout scenes is the default;
-#     cap with --n for a quick pass. ------------------------------------------
+# --- calibrate (temperature scaling) ---------------------------------------
 pixi run --frozen python -m absol.cli calibrate --run "$OUT" --n 300 || echo "calibration skipped/failed"
 
-# --- persist results back to $HOME (scratch is purged) ---------------------
-mkdir -p /home/apal/models
-cp -r "$OUT" /home/apal/models/
-echo "=== done; model at /home/apal/models/v0/ (model.pt + T.json) ==="
+# --- final sync (trap also covers this) ------------------------------------
+rescue
+echo "=== done; model at $DEST (model.pt + T.json) ==="
